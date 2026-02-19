@@ -169,6 +169,21 @@ void fillLabels(sensor_msgs::msg::PointCloud2 const& msg, std::string const& fie
 	}
 }
 
+template <typename T, typename Semantics>
+void fillSemantics(sensor_msgs::msg::PointCloud2 const& msg,
+                   std::string const&                   label_field_name,
+                   std::string const& value_field_name, Semantics& semantics)
+{
+	sensor_msgs::PointCloud2ConstIterator<T>            iter_label(msg, label_field_name);
+	sensor_msgs::PointCloud2ConstIterator<ufo::value_t> iter_value(msg, value_field_name);
+	for (auto& s : semantics) {
+		s.label = static_cast<ufo::label_t>(*iter_label);
+		s.value = *iter_value;
+		++iter_label;
+		++iter_value;
+	}
+}
+
 template <std::size_t Dim, class T, class... Rest>
 void fromMsg(sensor_msgs::msg::PointCloud2 const& msg,
              ufo::PointCloud<Dim, T, Rest...>&    out)
@@ -263,6 +278,43 @@ void fromMsg(sensor_msgs::msg::PointCloud2 const& msg,
 		} else {
 			RCLCPP_WARN(rclcpp::get_logger("ufo_ros"),
 			            "PointCloud2 message does not contain a label field ('l' or 'label').");
+		}
+	}
+
+	if constexpr (ufo::contains_type_v<ufo::Semantic, Rest...>) {
+		auto label_field_it =
+		    std::find_if(msg.fields.begin(), msg.fields.end(),
+		                 [&](auto const& f) { return f.name == "l" || f.name == "label"; });
+
+		auto value_field_it = std::find_if(msg.fields.begin(), msg.fields.end(),
+		                                   [&](auto const& f) { return f.name == "heat"; });
+
+		if (label_field_it != msg.fields.end() && value_field_it != msg.fields.end()) {
+			auto semantics = out.template view<ufo::Semantic>();
+
+			switch (label_field_it->datatype) {
+				case sensor_msgs::msg::PointField::UINT8:
+					fillSemantics<std::uint8_t>(msg, label_field_it->name, value_field_it->name,
+					                            semantics);
+					break;
+				case sensor_msgs::msg::PointField::UINT16:
+					fillSemantics<std::uint16_t>(msg, label_field_it->name, value_field_it->name,
+					                             semantics);
+					break;
+				case sensor_msgs::msg::PointField::UINT32:
+					fillSemantics<std::uint32_t>(msg, label_field_it->name, value_field_it->name,
+					                             semantics);
+					break;
+				default:
+					RCLCPP_WARN(rclcpp::get_logger("ufo_ros"),
+					            "Unsupported label field type in PointCloud2 message. Expected "
+					            "UINT8, UINT16, or UINT32.");
+					break;
+			}
+		} else {
+			RCLCPP_WARN_STREAM(
+			    rclcpp::get_logger("ufo_ros"),
+			    "PointCloud2 message does not contain expected fields 'label' and 'value'.");
 		}
 	}
 	// TODO: Implement
